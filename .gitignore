@@ -1,0 +1,4 @@
+*.h5
+/data/Universal Dependencies 2.18/
+__pycache__/
+*.DS_Store
