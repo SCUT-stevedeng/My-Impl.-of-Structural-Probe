@@ -1,3 +1,5 @@
+import numpy as np
+
 class TreeNode:
 	def __init__(self, id:str, value:str):
 		self.id=id
@@ -83,3 +85,10 @@ class Tree:
 	def compute_distance(self, node_a, node_b):
 		return node_a.depth() + node_b.depth() - 2*self.find_lca(node_a, node_b).depth()
 	
+	def build_tree_from_distances(self): #Prim Algorithm
+		pass
+
+class UndirectedTree:
+	def __init__(self, distance_list):
+		n = np.count_nonzero(distance_list == 0)
+		self.adjacent_matrix = np.full((n,n), np.inf)

@@ -6,7 +6,7 @@ from dependency_tree import *
 import numpy as np
 from tqdm import tqdm
 import torch
-data_type = "train"
+data_type = input("请输入 train 或者 test:\n")
 
 class CONLLUDataSet:
 	'''
@@ -28,6 +28,7 @@ class CONLLUDataSet:
 		self.data = None
 		if path is not None:
 			path = Path(path)
+			self.name = path.stem
 			if path.suffix == ".json":
 				self.load_processed_data(path)
 			elif path.suffix == ".conllu":
@@ -83,15 +84,16 @@ class CONLLUDataSet:
 		self.data = json.load(open(path, 'r'))
 
 	def save_data_to_json(self):
-		json.dump(self.data, open("./data/data.json", "w", encoding="UTF-8"))
+		json.dump(self.data, open(f"./data/{self.name}.json", "w", encoding="UTF-8"))
 		
 class DependencyH5DataWriter:
+	'''
 	@staticmethod
 	def get_mean_states(hidden_states_dataset):
-		'''
-		hidden_states_dataset is an instance of h5py._hl.dataset.Dataset
-		'''
+		#hidden_states_dataset is an instance of h5py._hl.dataset.Dataset
 		return np.mean(np.stack([hs for hs in hidden_states_dataset], axis=0), axis=0)
+	'''
+
 
 	def __init__(self, depedency_data_path=None, hidden_states_path=None):
 		self.dependency_trees=None
@@ -101,7 +103,8 @@ class DependencyH5DataWriter:
 	def load_dependency_trees(self, dependency_data_path):
 		dependency_data = CONLLUDataSet(dependency_data_path)
 		self.dependency_trees = [Tree(tree_dict) for tree_dict in dependency_data.data]
-	
+
+			
 	def load_hidden_states_and_write(self, hidden_states_path):
 		assert self.dependency_trees is not None
 		with h5py.File(hidden_states_path) as r:
@@ -109,6 +112,7 @@ class DependencyH5DataWriter:
 				shape = r["/sentence_000000"]['hidden_states'].shape[1:]
 				depth_group = w.create_group("word_depth")
 				distance_group = w.create_group("word_distance")
+				sent_id_group = w.create_group("sent_id_group") #用于标识 depth_group 和 distance_group 中的单词所属句子的 id
 				depth_group.create_dataset(
 					"X",
 					shape=(0,) + shape,
@@ -140,12 +144,29 @@ class DependencyH5DataWriter:
 					dtype='int16',
 					chunks=True
 				)
+				sent_id_group.create_dataset(
+					"depth_word_id",
+					shape=(0,),
+					maxshape=(None,),
+					dtype="int16",
+					chunks=True
+				)
+				sent_id_group.create_dataset(
+					"distance_word_id",
+					shape=(0,),
+					maxshape=(None,),
+					dtype="int16",
+					chunks=True
+				)
+
+				num_processed_sents = 0
 				for sent_group in tqdm(r.values(), desc=f"generating {data_type} dataset:"):
 					tree = self.dependency_trees[int(sent_group.name[-6:])]
 					if len(tree.nodes) < 3:
 						print(f"单词数量太少了:{[node.value for node in tree.nodes.values()]}")
 						continue
 					ids_in_tree = np.vectorize(lambda s: s.decode("UTF-8"))(sent_group['id_in_tree'][:])
+					#差分数据的预处理
 					wi, wj = np.meshgrid(ids_in_tree, ids_in_tree, indexing='ij')
 					W_ij = np.stack([wi, wj], axis=-1)
 					mask = W_ij[..., 0] <= W_ij[..., 1] #i<=j取得到等号是方便后面损失的池化
@@ -164,6 +185,9 @@ class DependencyH5DataWriter:
 					depth_group['X'].resize(depth_group['X'].shape[0] + hidden_states.shape[0], axis=0)
 					depth_group['X'][-hidden_states.shape[0]:] = hidden_states
 
+					sent_id_group['depth_word_id'].resize(sent_id_group['depth_word_id'].shape[0] + len(depth_batch), axis=0)
+					sent_id_group['depth_word_id'][-len(depth_batch):] = np.full(len(depth_batch), num_processed_sents)
+
 
 					for pair, diff in zip(W_ij, diff_states):
 						node_a = tree.nodes[pair[0]]
@@ -175,6 +199,11 @@ class DependencyH5DataWriter:
 
 					distance_group['X_diff'].resize(distance_group['X_diff'].shape[0] + len(X_diff_batch), axis=0)
 					distance_group['X_diff'][-len(X_diff_batch):] = X_diff_batch
+
+					sent_id_group['distance_word_id'].resize(sent_id_group['distance_word_id'].shape[0] + len(distance_batch), axis=0)
+					sent_id_group['distance_word_id'][-len(distance_batch):] = np.full(len(distance_batch), num_processed_sents)
+
+					num_processed_sents +=1
 
 
 

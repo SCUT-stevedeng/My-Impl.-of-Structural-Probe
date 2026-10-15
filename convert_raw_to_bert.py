@@ -4,16 +4,8 @@ import torch
 from tqdm import tqdm
 import numpy as np
 import h5py
-output_path = "./data/bert_last_6_mean_hidden_states.h5"
-raw_data = json.load(open("./data/data.json"))
-sentences = []
-og_sentence_word_ids = [] #list of list word_id in the parse tree [sent1(word_id2......), sent2(word_id1......),...]
-for sent_id, dic in enumerate(raw_data):
-    sentences.append((sent_id,"[CLS] " + dic['text'].strip() + " [SEP]"))
-    og_sentence_word_ids.append([word_dict['id'] for word_dict in dic['tokens']])
-tokenizer=BertTokenizerFast.from_pretrained("bert-base-cased", do_lower_case=False)
-model=BertModel.from_pretrained("bert-base-cased", output_hidden_states=True)
-model.eval()
+import argparse
+
 def clean_word(word):
     return word[2:] if word.startswith("##") else word
 
@@ -47,9 +39,24 @@ if __name__ == "__main__":
     '''
     h5 structure:
     groups of sentence:
-        dataset of id_in_tree
-        dataset of hidden_states
+        dataset of id_in_tree:(word_num)
+        dataset of hidden_states:(word_num, layer_num, hidden_state_num)
     '''
+    parser = argparse.ArgumentParser()
+    parser.add_argument("input_path", help="输入json文件路径")
+    parser.add_argument("output_path", help="输出BERT隐状态路径") #例如 "./data/bert_last_6_mean_hidden_states.h5"
+    args = parser.parse_args()
+
+    output_path = args.output_path
+    raw_data = json.load(open(args.input_path))
+    sentences = []
+    og_sentence_word_ids = [] #list of list word_id in the parse tree [sent1(word_id2......), sent2(word_id1......),...]
+    for sent_id, dic in enumerate(raw_data):
+        sentences.append((sent_id,"[CLS] " + dic['text'].strip() + " [SEP]"))
+        og_sentence_word_ids.append([word_dict['id'] for word_dict in dic['tokens']])
+    tokenizer=BertTokenizerFast.from_pretrained("bert-base-cased", do_lower_case=False)
+    model=BertModel.from_pretrained("bert-base-cased", output_hidden_states=True)
+    model.eval()
 
 
     with h5py.File(output_path, "w") as f:
